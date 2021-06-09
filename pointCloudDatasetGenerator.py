@@ -8,6 +8,7 @@ import mathutils
 import csv
 import collections
 from scipy import spatial
+from PIL import Image
 
 def render_save(path):
     bpy.context.scene.render.filepath = path
@@ -32,7 +33,7 @@ def move_cam_randomly(start, end, focus_point=mathutils.Vector((0.0, 0.0, 0.0)))
     camera.rotation_euler = rot_quat.to_euler()
 
 
-def draw_faces(layer,screenSpacePoints):
+def outputGenerator(path,layer,screenSpacePoints):
     obj = layer.objects.active
     bm = bmesh.new()
     bm.from_object(obj, bpy.context.evaluated_depsgraph_get())
@@ -40,25 +41,42 @@ def draw_faces(layer,screenSpacePoints):
     bm.verts.ensure_lookup_table()
     # coordinates as tuples
     plain_verts = [vert.to_tuple() for vert in verts]
-    print(*plain_verts, sep='\n')
     
     tri = spatial.Delaunay(screenSpacePoints, qhull_options="Qt")
-    print(tri.simplices, "simplices")
-  
-    for i in range(len(tri.simplices)):
-        f1 = bm.faces.new( [bm.verts[tri.simplices[i][0]], \
-        bm.verts[tri.simplices[i][1]], \
-        bm.verts[tri.simplices[i][2]]])
-    for vert in bm.verts:
-        if len(vert.link_edges) == 0:
-            bm.verts.remove(vert)
+    adjacency_matrix = [ [0]*400 for i in range(400)]
+    adjacency_vector = [0]*(400*200)
 
-    if bpy.context.mode == 'EDIT_MESH':
-        bmesh.update_edit_mesh(obj.data)
-    else:
-        bm.to_mesh(obj.data)
 
-    obj.data.update()
+    print("tricimplices", len(tri.simplices))
+    for tuple in tri.simplices:
+        p0 = tuple[0]//20 + (tuple[0] % 20) * 20
+        p1 = tuple[1]//20 + (tuple[1] % 20) * 20
+        p2 = tuple[2]//20 + (tuple[2] % 20) * 20
+        adjacency_matrix[p0][p1] = 1 # edge tuple[0]-tuple[1]
+        adjacency_matrix[p1][p0] = 1
+        adjacency_matrix[p0][p2] = 1 # edge tuple[0]-tuple[2]
+        adjacency_matrix[p2][p0] = 1
+        adjacency_matrix[p1][p2] = 1 # edge tuple[1]-tuple[2]
+        adjacency_matrix[p2][p1] = 1
+
+    index = 0
+
+    for row in range(len(adjacency_matrix)):
+        for col in range(row + 1,len(adjacency_matrix)):
+                adjacency_vector[index] = adjacency_matrix[row][col]
+                index += 1
+    np.savetxt(path+".vector",adjacency_vector)
+
+    # for vert in bm.verts:
+    #     if len(vert.link_edges) == 0:
+    #         bm.verts.remove(vert)
+
+    # if bpy.context.mode == 'EDIT_MESH':
+    #     bmesh.update_edit_mesh(obj.data)
+    # else:
+    #     bm.to_mesh(obj.data)
+
+    # obj.data.update()
 
 
     
@@ -102,16 +120,17 @@ def create_mesh(ind_vertices):
     #f1 = bm.faces.new( [bm.verts[0], bm.verts[1], bm.verts[2]])
     # iterate over all possible hits
     screenSpacePoints = []
+    #    print("Going into for", ind_vertices.shape)
     for index, location in np.ndenumerate(ind_vertices):
         # no hit at this position
         if location is None or location[0] is None:
             continue
-        print(index, 'index')
+        #print(index, 'index')
         # add new vertex
         screenSpacePoints.append(index)
         bm.verts.new((location[0], location[1], location[2]))
         bm.verts.ensure_lookup_table()
-    print(screenSpacePoints, "screeeeen")
+    #    print(len(screenSpacePoints), "screeeeen")
     # make the bmesh the object's mesh
     bm.to_mesh(mesh)  
     bm.free()  # always do this when finished
@@ -144,7 +163,10 @@ def cloud_save(path, target):
     # setup vectors to match pixels
     xRange = np.linspace(topLeft[0], topRight[0], resolutionX)
     yRange = np.linspace(topLeft[1], bottomLeft[1], resolutionY)
-
+    xRange = xRange[230:250]
+    yRange = yRange[170:190]
+    
+    print("xrange is " , xRange)
     # array to store hit information
     values = fill_array_with_none(xRange, yRange)
 
@@ -180,7 +202,7 @@ def cloud_save(path, target):
 
         indexX += 1
         indexY = 0
-
+    #print(values)
     mesh, screenSpacePoints = create_mesh(values)
 
     # Create Object whose Object Data is our new mesh
@@ -188,7 +210,7 @@ def cloud_save(path, target):
     #faceobj = bpy.data.objects.new('created face object', facemesh)
     #faceobj.data.update()
 
-#DEBUGGING    
+    #DEBUGGING    
     #bpy.context.active_object.rotation_euler[0] = math.radians(45)
     # Add *Object* to the scene, not the mesh
     scene = bpy.context.scene
@@ -216,6 +238,22 @@ def cloud_save(path, target):
     '''
     return screenSpacePoints
 
+def savePointCloudImage(path,screenSpacePoints, layer):
+    obj = layer.objects.active
+    verts = [vert.co for vert in obj.data.vertices]
+    plain_verts = [vert.to_tuple() for vert in verts]
+    #print(*plain_verts, sep='\n')
+    array = np.array(plain_verts).reshape((20,20,3), order='F')
+    #print(*array, sep='\n')
+    array = array.reshape(1200)
+    np.savetxt(path+".nk", array)
+    #ar = np.loadtxt(path+".nk")
+    #print("=================================")
+    #ar = ar.reshape((20,20,3))
+    #print(*ar, sep='\n')
+
+
+
 def main(args):
     
     renderCount = args[0]
@@ -227,14 +265,24 @@ def main(args):
     #specify render resolution
     bpy.context.scene.render.resolution_x = 480
     bpy.context.scene.render.resolution_y = 360
-    for i in range(renderCount):
+    for i in range(0,renderCount):
         move_cam_randomly(start, end, targetObj.location)
-        render_save(path+str(i))
+        #render_save(path+"inputs\\"+str(i))
+        bpy.context.view_layer.update()
+        print("Creating Cloud")
+        #print(targetObj.data)
         screenSpacePoints = cloud_save(path+str(i), targetObj)
-        draw_faces(bpy.context.view_layer, screenSpacePoints)
+        print("Saving Point Cloud Image")
+        savePointCloudImage(path+"inputs/"+str(i), screenSpacePoints, bpy.context.view_layer)
+        print("hiding")    
+        targetObj.hide_set(True)
+        outputGenerator(path+"outputs/"+str(i), bpy.context.view_layer, screenSpacePoints)
+        #render_save(path+"outputs/"+str(i))
+        targetObj.hide_set(False)
+        bpy.ops.object.delete()
         bpy.ops.object.select_all(action='DESELECT')
         targetObj.select_set(True)
         bpy.context.view_layer.objects.active = targetObj
-main( [1, "C:\Renders\\", 4.5,8])
+main( [1000, "C:/Dataset/", 2,6])
 
 print("Done.")
