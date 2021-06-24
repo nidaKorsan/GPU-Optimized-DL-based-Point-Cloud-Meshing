@@ -45,9 +45,10 @@ def outputGenerator(path,layer,screenSpacePoints):
     tri = spatial.Delaunay(screenSpacePoints, qhull_options="Qt")
     adjacency_matrix = [ [0]*400 for i in range(400)]
     adjacency_vector = [0]*(400*200)
-
-
-    print("tricimplices", len(tri.simplices))
+    print(screenSpacePoints)
+    for i in tri.simplices:
+        bm.faces.new([bm.verts[i[0]], bm.verts[i[1]], bm.verts[i[2]]])
+    #print("tricimplices", len(tri.simplices))
     for tuple in tri.simplices:
         p0 = tuple[0]//20 + (tuple[0] % 20) * 20
         p1 = tuple[1]//20 + (tuple[1] % 20) * 20
@@ -59,6 +60,7 @@ def outputGenerator(path,layer,screenSpacePoints):
         adjacency_matrix[p1][p2] = 1 # edge tuple[1]-tuple[2]
         adjacency_matrix[p2][p1] = 1
 
+    #print(*adjacency_matrix, sep='\n')
     index = 0
 
     for row in range(len(adjacency_matrix)):
@@ -67,16 +69,16 @@ def outputGenerator(path,layer,screenSpacePoints):
                 index += 1
     np.savetxt(path+".vector",adjacency_vector)
 
-    # for vert in bm.verts:
-    #     if len(vert.link_edges) == 0:
-    #         bm.verts.remove(vert)
+    for vert in bm.verts:
+        if len(vert.link_edges) == 0:
+            bm.verts.remove(vert)
 
-    # if bpy.context.mode == 'EDIT_MESH':
-    #     bmesh.update_edit_mesh(obj.data)
-    # else:
-    #     bm.to_mesh(obj.data)
+    if bpy.context.mode == 'EDIT_MESH':
+        bmesh.update_edit_mesh(obj.data)
+    else:
+        bm.to_mesh(obj.data)
 
-    # obj.data.update()
+    obj.data.update()
 
 
     
@@ -242,11 +244,17 @@ def savePointCloudImage(path,screenSpacePoints, layer):
     obj = layer.objects.active
     verts = [vert.co for vert in obj.data.vertices]
     plain_verts = [vert.to_tuple() for vert in verts]
-    #print(*plain_verts, sep='\n')
-    array = np.array(plain_verts).reshape((20,20,3), order='F')
+    plainFilledVerts = [(None, None, None, False)] * 400
+    plainFilledVerts = np.array(plainFilledVerts).reshape((20,20,4))
+    index = 0
+    for i, j in screenSpacePoints:
+        plainFilledVerts[i][j] = plain_verts[index] + (True, )
+        index += 1
+
+    array = np.array(plainFilledVerts).reshape((20,20,4), order='F')
     #print(*array, sep='\n')
-    array = array.reshape(1200)
-    np.savetxt(path+".nk", array)
+    array = array.reshape(1600)
+    np.savetxt(path+".nk", array,fmt='%s')
     #ar = np.loadtxt(path+".nk")
     #print("=================================")
     #ar = ar.reshape((20,20,3))
@@ -261,12 +269,12 @@ def main(args):
     start = args[2]
     end = args[3]
     targetObj = bpy.context.view_layer.objects.active
-    targetObj = bpy.data.objects['Cube']
+    targetObj = bpy.data.objects['Cylinder']
     #specify render resolution
     bpy.context.scene.render.resolution_x = 480
     bpy.context.scene.render.resolution_y = 360
-    for i in range(0,renderCount):
-        move_cam_randomly(start, end, targetObj.location)
+    for i in range(12000,renderCount):
+        #move_cam_randomly(start, end, targetObj.location)
         #render_save(path+"inputs\\"+str(i))
         bpy.context.view_layer.update()
         print("Creating Cloud")
@@ -279,10 +287,10 @@ def main(args):
         outputGenerator(path+"outputs/"+str(i), bpy.context.view_layer, screenSpacePoints)
         #render_save(path+"outputs/"+str(i))
         targetObj.hide_set(False)
-        bpy.ops.object.delete()
+        #bpy.ops.object.delete()
         bpy.ops.object.select_all(action='DESELECT')
         targetObj.select_set(True)
         bpy.context.view_layer.objects.active = targetObj
-main( [1000, "C:/Dataset/", 2,6])
+main( [12001, "C:/Dataset/", 1.5,6])
 
 print("Done.")
